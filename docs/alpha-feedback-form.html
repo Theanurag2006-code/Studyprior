@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>StudyPrior — Alpha Feedback</title>
+<style>
+:root{font-family:Inter,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#172033;background:#f4f6fb}*{box-sizing:border-box}body{margin:0;padding:28px 16px}.wrap{max-width:850px;margin:auto}.hero,.card{background:#fff;border:1px solid #e1e6ef;border-radius:16px;padding:22px;margin-bottom:16px}.eyebrow{font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:#5e6a80;font-weight:700}.hero h1{margin:8px 0;font-size:28px}.hero p,.hint{color:#5e6a80;line-height:1.5}.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}@media(max-width:620px){.grid{grid-template-columns:1fr}}label{display:block;font-weight:650;margin:12px 0 6px}input,select,textarea{font:inherit;width:100%;border:1px solid #cbd3e1;border-radius:9px;padding:10px;background:#fff;color:#172033}textarea{min-height:92px;resize:vertical}.rating{display:flex;gap:8px;flex-wrap:wrap}.rating label{font-weight:500;margin:6px 12px 4px 0}.rating input{width:auto}.section-title{margin:0 0 8px;font-size:18px}.actions{display:flex;gap:10px;flex-wrap:wrap}.btn{border:0;border-radius:10px;padding:12px 16px;font:inherit;font-weight:700;cursor:pointer}.primary{background:#263b70;color:#fff}.secondary{background:#edf1f8;color:#23314e}.note{font-size:13px;color:#68748a}.required{color:#a33333}.success{display:none;padding:12px;border-radius:10px;background:#eaf7ef;color:#205d39;margin-top:12px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="hero">
+    <div class="eyebrow">StudyPrior · Alpha testing</div>
+    <h1>Help us improve StudyPrior</h1>
+    <p>Try the app, complete the tasks below, and share honest feedback. This form works offline in your browser. It does not send information anywhere and does not ask for your name, email, phone number or account password.</p>
+    <p class="note">Please do not include personal or sensitive information in written comments. Your answers are used to evaluate usability, recommendation clarity and bugs.</p>
+  </header>
+  <form id="feedback">
+    <section class="card">
+      <h2 class="section-title">1. About your test session</h2>
+      <div class="grid">
+        <div><label for="role">Your StudyPrior account category</label><select id="role" required><option value="">Select</option><option>Junior</option><option>Senior</option><option>Candidate</option><option>Did not sign in</option></select></div>
+        <div><label for="semester">Semester (optional)</label><select id="semester"><option value="">Prefer not to say</option><option>1</option><option>2</option><option>3</option><option>4</option><option>5</option><option>6</option><option>7</option><option>8</option></select></div>
+        <div><label for="device">Device used</label><select id="device" required><option value="">Select</option><option>Desktop / laptop</option><option>Tablet</option><option>Mobile</option></select></div>
+        <div><label for="duration">Approximate time spent</label><select id="duration" required><option value="">Select</option><option>Under 5 minutes</option><option>5–15 minutes</option><option>15–30 minutes</option><option>More than 30 minutes</option></select></div>
+      </div>
+    </section>
+    <section class="card">
+      <h2 class="section-title">2. Task experience</h2>
+      <p class="hint">Rate each task from 1 (very difficult) to 5 (very easy). Select N/A if you did not try it.</p>
+      <div id="task-ratings"></div>
+    </section>
+    <section class="card">
+      <h2 class="section-title">3. Priority and recommendation quality</h2>
+      <div id="quality-ratings"></div>
+      <label for="priorityReason">What influenced your trust or lack of trust in a topic's priority? (optional)</label><textarea id="priorityReason" maxlength="1200" placeholder="For example: the explanation, senior ratings, community ratings, or something that seemed inaccurate…"></textarea>
+      <label for="missing">Did you find a topic or useful academic detail missing? (optional)</label><textarea id="missing" maxlength="1200" placeholder="Describe the subject/topic or information you expected to find…"></textarea>
+    </section>
+    <section class="card">
+      <h2 class="section-title">4. Bugs and improvement ideas</h2>
+      <label for="bug">Did anything fail, behave unexpectedly, or look confusing? (optional)</label><textarea id="bug" maxlength="1500" placeholder="What did you do, what did you expect, and what happened instead? Do not include personal data."></textarea>
+      <label for="improvement">What one change would improve StudyPrior most? (optional)</label><textarea id="improvement" maxlength="1200" placeholder="Your most useful suggestion…"></textarea>
+      <label for="overall">Overall experience</label><div class="rating" id="overall-rating"></div>
+      <label for="recommend">Would you use StudyPrior again?</label><select id="recommend" required><option value="">Select</option><option>Definitely</option><option>Probably</option><option>Not sure</option><option>Probably not</option><option>Definitely not</option></select>
+    </section>
+    <section class="card">
+      <div class="actions"><button class="btn primary" type="submit">Download feedback JSON</button><button class="btn secondary" type="reset">Clear form</button></div>
+      <p class="note">When you submit, a JSON file is downloaded to your device. Send that file to the project team through the channel they provide. You can review it before sharing.</p>
+      <div class="success" id="success" role="status">Feedback file prepared. Please review the downloaded file before sharing it.</div>
+    </section>
+  </form>
+</div>
+<script>
+const tasks = [
+  ['findTopic','Find a subject and locate a topic you want to study'],
+  ['understandPriority','Understand why a topic has a particular priority'],
+  ['compareRatings','Understand community and senior rating information'],
+  ['shareExperience','Add a topic or share a rating/experience'],
+  ['saveAndPlan','Save a topic or add it to your study plan'],
+  ['seniorConnection','Find a senior and understand how to ask for help']
+];
+const qualities = [
+  ['priorityClarity','The priority score/label is easy to understand'],
+  ['recommendationRelevance','The recommended topic order feels relevant to academic preparation'],
+  ['confidenceClarity','The confidence indicator is understandable'],
+  ['ratingUsefulness','Community and senior ratings are useful']
+];
+function renderScale(containerId, items, prefix, labels) {
+  const host=document.getElementById(containerId);
+  host.innerHTML=items.map(([id,title])=>`<div style="padding:10px 0;border-top:1px solid #edf0f5"><label>${title}</label><div class="rating">${labels.map((x,i)=>`<label><input type="radio" name="${prefix}_${id}" value="${x}" ${i===0?'required':''}> ${x}</label>`).join('')}</div></div>`).join('');
+}
+renderScale('task-ratings',tasks,'task',['1','2','3','4','5','N/A']);
+renderScale('quality-ratings',qualities,'quality',['1','2','3','4','5','N/A']);
+renderScale('overall-rating',[['overall','Overall rating']],'overall',['1','2','3','4','5']);
+const form=document.getElementById('feedback');
+form.addEventListener('submit',event=>{
+  event.preventDefault();
+  const data={schema:'studyprior-alpha-feedback-v1',submittedAt:new Date().toISOString(),session:{role:document.getElementById('role').value,semester:document.getElementById('semester').value||null,device:document.getElementById('device').value,duration:document.getElementById('duration').value},taskEase:{},recommendationQuality:{},comments:{priorityReason:document.getElementById('priorityReason').value.trim(),missing:document.getElementById('missing').value.trim(),bug:document.getElementById('bug').value.trim(),improvement:document.getElementById('improvement').value.trim()},overallRating:Number(new FormData(form).get('overall_overall')),wouldUseAgain:document.getElementById('recommend').value};
+  for(const [id] of tasks)data.taskEase[id]=new FormData(form).get(`task_${id}`);
+  for(const [id] of qualities)data.recommendationQuality[id]=new FormData(form).get(`quality_${id}`);
+  const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});
+  const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download=`studyprior-alpha-feedback-${new Date().toISOString().slice(0,10)}.json`;document.body.appendChild(a);a.click();a.remove();URL.revokeObjectURL(url);
+  document.getElementById('success').style.display='block';
+});
+form.addEventListener('reset',()=>{document.getElementById('success').style.display='none';});
+</script>
+</body>
+</html>

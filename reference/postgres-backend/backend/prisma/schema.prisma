@@ -1,0 +1,332 @@
+// StudyPrior data model. Hand-checked against prisma/migrations/0001_init/migration.sql.
+// CHECK constraints (rating bounds, semester bounds, ...) live in the SQL migration because Prisma cannot express them.
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum AccountRole {
+  STUDENT
+  ADMIN
+
+  @@map("account_role")
+}
+
+enum AcademicLevel {
+  JUNIOR
+  SENIOR
+
+  @@map("academic_level")
+}
+
+enum ThemePreference {
+  LIGHT
+  DARK
+  SYSTEM
+
+  @@map("theme_preference")
+}
+
+enum PublicationStatus {
+  PUBLISHED
+  PENDING_REVIEW
+
+  @@map("publication_status")
+}
+
+enum PlanStatus {
+  PLANNED
+  IN_PROGRESS
+  COMPLETED
+
+  @@map("plan_status")
+}
+
+enum PlanPurpose {
+  EXAMS
+  HIGHER_STUDIES
+  CONCEPTUAL
+  INTERVIEW
+  REVISION
+  PROJECTS
+  PERSONAL
+  OTHER
+
+  @@map("plan_purpose")
+}
+
+enum ActivityType {
+  PLAN_COMPLETED
+  STUDY_SESSION
+
+  @@map("activity_type")
+}
+
+enum DraftStatus {
+  OPEN
+  PUBLISHED
+
+  @@map("draft_status")
+}
+
+model User {
+  id                    String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name                  String          @db.VarChar(80)
+  email                 String          @unique(map: "uq_users_email") @db.VarChar(254) // always stored trimmed + lower-case
+  passwordHash          String          @map("password_hash")
+  accountRole           AccountRole     @default(STUDENT) @map("account_role")
+  department            String          @db.VarChar(120)
+  branch                String?         @db.VarChar(120)
+  college               String          @db.VarChar(160)
+  enrollmentNumber      String?         @map("enrollment_number") @db.VarChar(40)
+  // Student-only academic status. ADMIN accounts have NULL here (enforced by CHECK ck_users_role_academic).
+  enrollmentYear        Int?            @map("enrollment_year")
+  graduationYear        Int?            @map("graduation_year")
+  currentSemester       Int?            @map("current_semester")
+  academicLevel         AcademicLevel?  @map("academic_level") // derived server-side from currentSemester + academic_settings
+  bio                   String          @default("") @db.VarChar(300)
+  profilePhotoUrl       String?         @map("profile_photo_url") @db.VarChar(500)
+  availableForQuestions Boolean         @default(false) @map("available_for_questions")
+  publicContributions   Boolean         @default(true) @map("public_contributions") // show my name next to my ratings
+  themePreference       ThemePreference @default(SYSTEM) @map("theme_preference")
+  createdAt             DateTime        @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt             DateTime        @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  sessions        Session[]
+  userSubjects    UserSubject[]
+  ratings         Rating[]
+  savedTopics     SavedTopic[]
+  studyPlans      StudyPlan[]
+  activities      StudyActivity[]
+  notes           Note[]
+  drafts          SubjectDraft[]
+  createdSubjects Subject[]       @relation("SubjectCreator")
+  createdTopics   Topic[]         @relation("TopicCreator")
+
+  @@map("users")
+}
+
+/// Single-row table (id is always 1) holding the Junior/Senior progression rule.
+model AcademicSetting {
+  id                Int      @id @default(1)
+  juniorMaxSemester Int      @default(4) @map("junior_max_semester")
+  maxSemester       Int      @default(8) @map("max_semester")
+  updatedAt         DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+  updatedById       String?  @map("updated_by_id") @db.Uuid
+
+  @@map("academic_settings")
+}
+
+model Session {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tokenHash  String   @unique(map: "uq_sessions_token_hash") @map("token_hash") @db.VarChar(64) // HMAC of the cookie token; the raw token is never stored
+  userId     String   @map("user_id") @db.Uuid
+  csrfToken  String   @map("csrf_token") @db.VarChar(64)
+  userAgent  String?  @map("user_agent") @db.VarChar(200)
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  lastSeenAt DateTime @default(now()) @map("last_seen_at") @db.Timestamptz(3)
+  expiresAt  DateTime @map("expires_at") @db.Timestamptz(3)
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId], map: "ix_sessions_user")
+  @@index([expiresAt], map: "ix_sessions_expires")
+  @@map("sessions")
+}
+
+model Subject {
+  id             String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name           String            @db.VarChar(120)
+  nameNormalized String            @map("name_normalized") @db.VarChar(120) // lower-case, single-spaced; used for duplicate detection
+  description    String            @default("") @db.VarChar(500)
+  department     String            @db.VarChar(120)
+  semester       Int
+  code           String?           @db.VarChar(20)
+  createdById    String?           @map("created_by_id") @db.Uuid
+  status         PublicationStatus @default(PUBLISHED)
+  createdAt      DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt      DateTime          @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  createdBy    User?         @relation("SubjectCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  units        Unit[]
+  topics       Topic[]
+  userSubjects UserSubject[]
+  notes        Note[]
+
+  @@unique([nameNormalized, department, semester], map: "uq_subjects_identity")
+  @@index([department, semester], map: "ix_subjects_dept_sem")
+  @@map("subjects")
+}
+
+model Unit {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  subjectId      String   @map("subject_id") @db.Uuid
+  name           String   @db.VarChar(120)
+  nameNormalized String   @map("name_normalized") @db.VarChar(120)
+  description    String   @default("") @db.VarChar(500)
+  unitNumber     Int      @map("unit_number")
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  subject Subject @relation(fields: [subjectId], references: [id], onDelete: Cascade)
+  topics  Topic[]
+
+  @@unique([subjectId, unitNumber], map: "uq_units_number")
+  @@unique([subjectId, nameNormalized], map: "uq_units_name")
+  @@map("units")
+}
+
+model Topic {
+  id             String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  subjectId      String            @map("subject_id") @db.Uuid
+  unitId         String            @map("unit_id") @db.Uuid
+  name           String            @db.VarChar(120)
+  nameNormalized String            @map("name_normalized") @db.VarChar(120)
+  description    String            @default("") @db.VarChar(500)
+  estimatedHours Decimal?          @map("estimated_hours") @db.Decimal(5, 1)
+  createdById    String?           @map("created_by_id") @db.Uuid
+  status         PublicationStatus @default(PUBLISHED)
+  createdAt      DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt      DateTime          @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  subject    Subject      @relation(fields: [subjectId], references: [id], onDelete: Cascade)
+  unit       Unit         @relation(fields: [unitId], references: [id], onDelete: Cascade)
+  createdBy  User?        @relation("TopicCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  ratings    Rating[]
+  savedBy    SavedTopic[]
+  studyPlans StudyPlan[]
+  activities StudyActivity[]
+  notes      Note[]
+
+  @@unique([subjectId, nameNormalized], map: "uq_topics_identity")
+  @@index([unitId], map: "ix_topics_unit")
+  @@map("topics")
+}
+
+/// A student's PERSONAL subject list. It never owns or changes the shared catalog.
+model UserSubject {
+  userId    String   @map("user_id") @db.Uuid
+  subjectId String   @map("subject_id") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  subject   Subject  @relation(fields: [subjectId], references: [id], onDelete: Cascade)
+
+  @@id([userId, subjectId]) // the composite primary key is the UNIQUE(user_id, subject_id) rule
+  @@index([subjectId], map: "ix_user_subjects_subject")
+  @@map("user_subjects")
+}
+
+model Rating {
+  id                         String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId                     String        @map("user_id") @db.Uuid
+  topicId                    String        @map("topic_id") @db.Uuid
+  importance                 Int
+  difficulty                 Int
+  examRelevance              Int           @map("exam_relevance")
+  interviewRelevance         Int           @map("interview_relevance")
+  advice                     String        @default("") @db.VarChar(1000)
+  commonMistake              String        @default("") @map("common_mistake") @db.VarChar(1000)
+  academicLevelAtSubmission  AcademicLevel @map("academic_level_at_submission") // snapshot, never re-derived later
+  createdAt                  DateTime      @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt                  DateTime      @updatedAt @map("updated_at") @db.Timestamptz(3)
+  user                       User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  topic                      Topic         @relation(fields: [topicId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, topicId], map: "uq_ratings_user_topic")
+  @@index([topicId, academicLevelAtSubmission], map: "ix_ratings_topic_level")
+  @@map("ratings")
+}
+
+model SavedTopic {
+  userId    String   @map("user_id") @db.Uuid
+  topicId   String   @map("topic_id") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  topic     Topic    @relation(fields: [topicId], references: [id], onDelete: Cascade)
+
+  @@id([userId, topicId])
+  @@index([topicId], map: "ix_saved_topics_topic")
+  @@map("saved_topics")
+}
+
+model StudyPlan {
+  id               String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId           String       @map("user_id") @db.Uuid
+  topicId          String       @map("topic_id") @db.Uuid
+  targetDate       DateTime     @map("target_date") @db.Date
+  status           PlanStatus   @default(PLANNED)
+  estimatedMinutes Int          @default(60) @map("estimated_minutes")
+  purpose          PlanPurpose?
+  customPurpose    String?      @map("custom_purpose") @db.VarChar(60)
+  completedAt      DateTime?    @map("completed_at") @db.Timestamptz(3)
+  createdAt        DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt        DateTime     @updatedAt @map("updated_at") @db.Timestamptz(3)
+  user             User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  topic            Topic        @relation(fields: [topicId], references: [id], onDelete: Cascade)
+  notes            Note[]
+  activities       StudyActivity[]
+
+  @@index([userId, status], map: "ix_plans_user_status")
+  @@index([userId, targetDate], map: "ix_plans_user_date")
+  @@map("study_plans")
+}
+
+model StudyActivity {
+  id           String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId       String       @map("user_id") @db.Uuid
+  topicId      String?      @map("topic_id") @db.Uuid
+  studyPlanId  String?      @map("study_plan_id") @db.Uuid
+  activityType ActivityType @map("activity_type")
+  minutes      Int
+  occurredOn   DateTime     @map("occurred_on") @db.Date // UTC calendar day; streaks are computed from this
+  createdAt    DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  topic        Topic?       @relation(fields: [topicId], references: [id], onDelete: SetNull)
+  studyPlan    StudyPlan?   @relation(fields: [studyPlanId], references: [id], onDelete: SetNull)
+
+  @@unique([studyPlanId, activityType], map: "uq_activity_plan_event") // completing the same plan twice cannot double-count
+  @@index([userId, occurredOn], map: "ix_activity_user_day")
+  @@map("study_activity")
+}
+
+/// Private to the owner. Notes are never exposed as advice or ratings.
+model Note {
+  id          String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId      String     @map("user_id") @db.Uuid
+  title       String     @db.VarChar(80)
+  body        String     @db.VarChar(2000)
+  subjectId   String?    @map("subject_id") @db.Uuid
+  topicId     String?    @map("topic_id") @db.Uuid
+  studyPlanId String?    @map("study_plan_id") @db.Uuid
+  createdAt   DateTime   @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime   @updatedAt @map("updated_at") @db.Timestamptz(3)
+  user        User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  subject     Subject?   @relation(fields: [subjectId], references: [id], onDelete: SetNull)
+  topic       Topic?     @relation(fields: [topicId], references: [id], onDelete: SetNull)
+  studyPlan   StudyPlan? @relation(fields: [studyPlanId], references: [id], onDelete: SetNull)
+
+  @@index([userId, updatedAt], map: "ix_notes_user_updated")
+  @@map("notes")
+}
+
+/// Private work-in-progress for the create-subject workflow. Publishing is a single DB transaction (next milestone).
+model SubjectDraft {
+  id                 String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId             String      @map("user_id") @db.Uuid
+  name               String      @default("") @db.VarChar(120)
+  department         String      @default("") @db.VarChar(120)
+  semester           Int?
+  description        String      @default("") @db.VarChar(500)
+  topics             Json        @default("[]") // [{ name, unit, description, hours }]; validated with Zod on write
+  status             DraftStatus @default(OPEN)
+  publishedSubjectId String?     @map("published_subject_id") @db.Uuid
+  createdAt          DateTime    @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt          DateTime    @updatedAt @map("updated_at") @db.Timestamptz(3)
+  user               User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, status], map: "ix_drafts_user_status")
+  @@map("subject_drafts")
+}

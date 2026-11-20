@@ -1,0 +1,21 @@
+# Local PostgreSQL for development and tests.  Start: docker compose up -d   Stop: docker compose down   (add -v to also delete the data)
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: studyprior-db
+    environment:
+      POSTGRES_USER: studyprior
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD (see .env.example)}
+      POSTGRES_DB: studyprior
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - studyprior_pgdata:/var/lib/postgresql/data
+      - ./backend/docker/init-test-db.sql:/docker-entrypoint-initdb.d/init-test-db.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U studyprior -d studyprior"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+volumes:
+  studyprior_pgdata:
